@@ -327,7 +327,7 @@
       <video id="deviceVideo" autoplay playsinline muted></video>
       <div class="device-status" id="deviceStatus">
         <div>
-          <p id="deviceStatusMsg" style="margin:0 0 14px;">Connecting to device&hellip;</p>
+          <p id="deviceStatusMsg" style="margin:0 0 14px;">Waiting for device&hellip;</p>
           <button id="retryDeviceBtn" style="padding:8px 18px;border-radius:20px;border:1px solid #444;background:#1d1d1d;color:#ddd;font-size:13px;cursor:pointer;">Retry</button>
         </div>
       </div>
@@ -389,11 +389,11 @@
   document.getElementById('yourDeviceLink').addEventListener('click', () => { closeDrawers(); showScreen('devicepage'); connectToDevice(); });
   document.querySelectorAll('.back-link').forEach(b => b.addEventListener('click', () => showScreen('landing')));
 
-  // Must match DEVICE_ID in ar-camera-demo.html exactly. Change this to something
-  // unique to your team so a stranger can't guess it and view your camera.
+  // Must match the IDs in ar-camera-demo.html exactly. Change these to something
+  // unique to your team so a stranger can't guess them and view your camera.
   const DEVICE_ID = 'spatial-claw-device-k29x71';
+  const VIEWER_ID = 'spatial-claw-viewer-k29x71';
   let devicePeer = null;
-  let deviceConnectAttempted = false;
 
   function connectToDevice(){
     const video = document.getElementById('deviceVideo');
@@ -402,36 +402,33 @@
     const retryBtn = document.getElementById('retryDeviceBtn');
     const caption = document.getElementById('deviceCaption');
     status.classList.remove('hidden');
-    statusMsg.textContent = 'Connecting to device…';
+    statusMsg.textContent = 'Waiting for device… (keep the AR camera demo open on your phone, this connects automatically within a few seconds)';
 
-    if (!devicePeer) { devicePeer = new Peer(); }
-
-    function tryCall(){
-      statusMsg.textContent = 'Connecting to device…';
-      const emptyStream = new MediaStream();
-      const call = devicePeer.call(DEVICE_ID, emptyStream);
-      let connected = false;
-      call.on('stream', remoteStream => {
-        connected = true;
-        video.srcObject = remoteStream;
-        status.classList.add('hidden');
-        caption.textContent = 'Connected — this is what the AR glasses camera is seeing right now.';
+    function startListening(){
+      devicePeer = new Peer(VIEWER_ID);
+      devicePeer.on('call', incomingCall => {
+        incomingCall.answer();
+        incomingCall.on('stream', remoteStream => {
+          video.srcObject = remoteStream;
+          status.classList.add('hidden');
+          caption.textContent = 'Connected — this is what the AR glasses camera is seeing right now.';
+        });
       });
-      call.on('error', () => {
-        statusMsg.textContent = 'Could not reach the device. Make sure the AR camera demo is open on your phone, then click Retry.';
+      devicePeer.on('error', err => {
+        if (err.type === 'unavailable-id') {
+          setTimeout(startListening, 1500);
+        } else {
+          statusMsg.textContent = 'Connection error: ' + err.type + '. Click Retry.';
+        }
       });
-      setTimeout(() => {
-        if (!connected) { statusMsg.textContent = 'Device offline or not reachable. Make sure the AR camera demo is open on your phone, then click Retry.'; }
-      }, 6000);
     }
-    retryBtn.onclick = tryCall;
 
-    if (devicePeer.open) { tryCall(); }
-    else { devicePeer.on('open', tryCall); }
-
-    devicePeer.on('error', err => {
-      statusMsg.textContent = 'Connection error: ' + err.type;
-    });
+    if (!devicePeer || devicePeer.destroyed) { startListening(); }
+    retryBtn.onclick = () => {
+      statusMsg.textContent = 'Waiting for device…';
+      if (devicePeer) { devicePeer.destroy(); }
+      startListening();
+    };
   }
 
   document.querySelectorAll('.tag-grid').forEach(grid => {
