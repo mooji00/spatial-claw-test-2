@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>Spatial Claw — AR Camera Demo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<style>
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;height:100%;background:#000;overflow:hidden;font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif;}
+  #cam{position:fixed;inset:0;width:100%;height:100%;object-fit:cover;background:#000;}
+  #scrim{position:fixed;inset:0;background:var(--tint,#181410);opacity:0.0;pointer-events:none;mix-blend-mode:normal;}
+
+  .hud{position:fixed;inset:0;pointer-events:none;z-index:10;display:none;}
+  .hud.active{display:block;}
+  .hud-stack{position:absolute;top:8%;right:5%;display:flex;flex-direction:column;align-items:flex-end;gap:12px;}
+
+  .pill{display:inline-flex;align-items:center;gap:12px;background:rgba(255,255,255,0.12);border:1px solid rgba(255,255,255,0.3);border-radius:999px;padding:10px 22px 10px 10px;box-shadow:0 10px 24px rgba(0,0,0,0.38);}
+  .pill.primary{border-color:#ffffff;}
+  .pill .headline{font-weight:700;font-size:19px;color:#f2f1ed;text-shadow:0 0 10px rgba(255,255,255,0.7);white-space:nowrap;line-height:1.25;}
+
+  .ring-icon{display:flex;align-items:center;flex-shrink:0;}
+  .ring{width:22px;height:22px;border-radius:50%;border:4px solid;background:transparent;flex-shrink:0;}
+  .ring + .ring{margin-left:-9px;}
+
+  .pill-btn{display:flex;align-items:center;justify-content:center;width:300px;background:rgba(255,255,255,0.12);border:1px solid #ffffff;border-radius:999px;padding:13px 0;box-shadow:0 10px 24px rgba(0,0,0,0.38);cursor:pointer;}
+  .pill-btn span{font-weight:700;font-size:18px;color:#f2f1ed;text-shadow:0 0 10px rgba(255,255,255,0.7);}
+
+  .map-card{width:300px;height:200px;border-radius:17px;overflow:hidden;position:relative;border:1px solid rgba(255,255,255,0.3);box-shadow:0 10px 24px rgba(0,0,0,0.38);background:linear-gradient(160deg,#cfe8d8 0%,#a9c9e0 45%,#8fb9d6 100%);}
+  .map-card svg{position:absolute;inset:0;width:100%;height:100%;}
+  .map-info{position:absolute;left:0;right:0;bottom:0;padding:12px 16px;background:linear-gradient(to top, rgba(8,8,10,0.8), rgba(8,8,10,0));color:#fff;}
+  .map-info .title{font-weight:700;font-size:14px;margin-bottom:6px;}
+  .map-stats{display:flex;gap:26px;font-size:10px;opacity:0.8;}
+  .map-stats b{display:block;font-size:13px;font-weight:700;}
+
+  .meeting-card{width:300px;border-radius:17px;background:#23211d;border:1px solid rgba(255,255,255,0.3);box-shadow:0 10px 24px rgba(0,0,0,0.38);padding:14px;}
+  .meeting-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;}
+  .meeting-tile{aspect-ratio:1;border-radius:9px;background:#34322c;display:flex;align-items:center;justify-content:center;}
+  .meeting-tile span{width:30px;height:30px;border-radius:50%;}
+  .meeting-meta{font-size:11px;color:rgba(255,255,255,0.6);}
+  .meeting-meta b{color:#f2f1ed;}
+
+  .clock-readout{position:fixed;bottom:6%;right:5%;color:rgba(255,255,255,0.6);font-size:13px;z-index:10;display:none;}
+  .clock-readout.active{display:block;}
+
+  #nextBtn{position:fixed;bottom:5%;left:50%;transform:translateX(-50%);z-index:20;padding:12px 26px;border-radius:30px;border:1px solid rgba(255,255,255,0.3);background:rgba(20,20,20,0.55);color:#fff;font-size:14px;font-weight:600;cursor:pointer;backdrop-filter:blur(6px);}
+  #sceneDots{position:fixed;bottom:11.5%;left:50%;transform:translateX(-50%);display:flex;gap:6px;z-index:20;}
+  #sceneDots span{width:6px;height:6px;border-radius:50%;background:rgba(255,255,255,0.3);}
+  #sceneDots span.on{background:#fff;}
+
+  #errMsg{position:fixed;bottom:18px;left:18px;right:18px;z-index:30;color:#ff8a8a;font-size:12px;display:none;}
+  #liveBadge{position:fixed;top:18px;left:18px;z-index:30;display:none;align-items:center;gap:6px;color:rgba(255,255,255,0.7);font-size:12px;background:rgba(0,0,0,0.4);padding:6px 12px;border-radius:20px;}
+  #liveBadge .dot{width:7px;height:7px;border-radius:50%;background:#ef4444;}
+  #liveBadge.on{display:flex;}
+</style>
+</head>
+<body>
+
+<video id="cam" autoplay muted playsinline></video>
+
+<!-- Step 1: 7pm Dog Walk + rain heads-up -->
+<div class="hud" id="s1">
+  <div class="hud-stack">
+    <div class="pill">
+      <span class="ring-icon">
+        <span class="ring" style="border-color:#22c55e;filter:drop-shadow(0 0 8px rgba(34,197,94,0.55))"></span>
+        <span class="ring" style="border-color:#a78bfa;filter:drop-shadow(0 0 8px rgba(167,139,250,0.55))"></span>
+      </span>
+      <span class="headline">7pm Dog Walk</span>
+    </div>
+    <div class="pill">
+      <span class="ring-icon">
+        <span class="ring" style="border-color:#22c55e;filter:drop-shadow(0 0 8px rgba(34,197,94,0.55))"></span>
+        <span class="ring" style="border-color:#3b82f6;filter:drop-shadow(0 0 8px rgba(59,130,246,0.55))"></span>
+      </span>
+      <span class="headline">28°, Rain in 1hour</span>
+    </div>
+  </div>
+</div>
+
+<!-- Step 2: Suggested route + confirm -->
+<div class="hud" id="s2">
+  <div class="hud-stack">
+    <div class="pill">
+      <span class="ring-icon">
+        <span class="ring" style="border-color:#22c55e;filter:drop-shadow(0 0 8px rgba(34,197,94,0.55))"></span>
+        <span class="ring" style="border-color:#a78bfa;filter:drop-shadow(0 0 8px rgba(167,139,250,0.55))"></span>
+      </span>
+      <span class="headline">Suggested Route</span>
+    </div>
+    <div class="map-card">
+      <svg viewBox="0 0 300 200" fill="none"><path d="M40 170 C 90 150, 70 100, 120 90 C 170 80, 160 40, 230 30" stroke="#e8602c" stroke-width="4" stroke-linecap="round"/><circle cx="40" cy="170" r="6" fill="#e8602c"/><circle cx="230" cy="30" r="6" fill="#2563eb"/></svg>
+      <div class="map-info">
+        <div class="title">Evening Walk</div>
+        <div class="map-stats">
+          <div>Distance<b>4.89 km</b></div>
+          <div>Time<b>1h 13m</b></div>
+        </div>
+      </div>
+    </div>
+    <div class="pill-btn"><span>Confirm Walk Route</span></div>
+  </div>
+</div>
+
+<!-- Step 3: Weather update + rerouting -->
+<div class="hud" id="s3">
+  <div class="hud-stack">
+    <div class="pill">
+      <span class="ring-icon"><span class="ring" style="border-color:#3b82f6;filter:drop-shadow(0 0 8px rgba(59,130,246,0.7))"></span></span>
+      <span class="headline">Weather Update:<br>Rain in 30min</span>
+    </div>
+    <div class="pill primary">
+      <span class="ring-icon">
+        <span class="ring" style="border-color:#a78bfa;filter:drop-shadow(0 0 8px rgba(167,139,250,0.55))"></span>
+        <span class="ring" style="border-color:#3b82f6;filter:drop-shadow(0 0 8px rgba(59,130,246,0.55))"></span>
+        <span class="ring" style="border-color:#22c55e;filter:drop-shadow(0 0 8px rgba(34,197,94,0.55))"></span>
+      </span>
+      <span class="headline">Rerouting Home</span>
+    </div>
+  </div>
+</div>
+
+<!-- Step 4: Rerouted suggestion + confirm -->
+<div class="hud" id="s4">
+  <div class="hud-stack">
+    <div class="pill">
+      <span class="ring-icon">
+        <span class="ring" style="border-color:#22c55e;filter:drop-shadow(0 0 8px rgba(34,197,94,0.55))"></span>
+        <span class="ring" style="border-color:#a78bfa;filter:drop-shadow(0 0 8px rgba(167,139,250,0.55))"></span>
+      </span>
+      <span class="headline">Suggested Route</span>
+    </div>
+    <div class="map-card">
+      <svg viewBox="0 0 300 200" fill="none"><path d="M40 170 C 80 140, 60 90, 130 80 C 190 72, 175 35, 235 25" stroke="#e8602c" stroke-width="4" stroke-linecap="round"/><circle cx="40" cy="170" r="6" fill="#e8602c"/><circle cx="235" cy="25" r="6" fill="#2563eb"/></svg>
+      <div class="map-info">
+        <div class="title">Evening Walk (rerouted)</div>
+        <div class="map-stats">
+          <div>Distance<b>3.20 km</b></div>
+          <div>Time<b>48m</b></div>
+        </div>
+      </div>
+    </div>
+    <div class="pill-btn"><span>Confirm Walk Route</span></div>
+  </div>
+</div>
+
+<!-- Step 5: Meeting tomorrow + alarm -->
+<div class="hud" id="s5">
+  <div class="hud-stack">
+    <div class="pill primary">
+      <span class="ring-icon">
+        <span class="ring" style="border-color:#dc2626;filter:drop-shadow(0 0 8px rgba(220,38,38,0.7))"></span>
+        <span class="ring" style="border-color:#a78bfa;filter:drop-shadow(0 0 8px rgba(167,139,250,0.7))"></span>
+      </span>
+      <span class="headline">Meeting Tomorrow 8am</span>
+    </div>
+    <div class="pill">
+      <span class="ring-icon"><span class="ring" style="border-color:#a78bfa;filter:drop-shadow(0 0 8px rgba(167,139,250,0.7))"></span></span>
+      <span class="headline">Alarm set at 6am</span>
+    </div>
+  </div>
+</div>
+
+<!-- Step 6: Meeting details expanded -->
+<div class="hud" id="s6">
+  <div class="hud-stack">
+    <div class="pill primary">
+      <span class="ring-icon">
+        <span class="ring" style="border-color:#dc2626;filter:drop-shadow(0 0 8px rgba(220,38,38,0.7))"></span>
+        <span class="ring" style="border-color:#a78bfa;filter:drop-shadow(0 0 8px rgba(167,139,250,0.7))"></span>
+      </span>
+      <span class="headline">Meeting Tomorrow 8am</span>
+    </div>
+    <div class="meeting-card">
+      <div class="meeting-grid">
+        <div class="meeting-tile"><span style="background:#ec4899"></span></div>
+        <div class="meeting-tile"><span style="background:#3b82f6"></span></div>
+        <div class="meeting-tile"><span style="background:#fb923c"></span></div>
+        <div class="meeting-tile"><span style="background:#22c55e"></span></div>
+      </div>
+      <div class="meeting-meta"><b>Weekly Sync</b> &middot; 4 attendees &middot; 8:00 AM</div>
+    </div>
+    <div class="pill-btn"><span>Meeting Details &amp; To Dos</span></div>
+  </div>
+</div>
+
+<div class="clock-readout active" id="clockReadout">6:42 PM</div>
+<div id="sceneDots"></div>
+<button id="nextBtn">Next →</button>
+<div id="errMsg"></div>
+<div id="liveBadge"><span class="dot"></span><span>Broadcasting to control center</span></div>
+
+<script>
+  const video = document.getElementById('cam');
+  const errMsg = document.getElementById('errMsg');
+  const liveBadge = document.getElementById('liveBadge');
+  const scrim = document.getElementById('scrim');
+  // Must match DEVICE_ID in index.html exactly. Change this to something unique
+  // to your team so a stranger can't guess it and view your camera.
+  const DEVICE_ID = 'spatial-claw-device-k29x71';
+  const steps = [
+    { id: 's1', time: '6:42 PM', tint: '#181410' },
+    { id: 's2', time: '6:42 PM', tint: '#181410' },
+    { id: 's3', time: '7:20 PM', tint: '#0d1020' },
+    { id: 's4', time: '7:20 PM', tint: '#0d1020' },
+    { id: 's5', time: '9:50 PM', tint: '#1b140c' },
+    { id: 's6', time: '9:50 PM', tint: '#1b140c' }
+  ];
+  const dotsWrap = document.getElementById('sceneDots');
+  steps.forEach(() => { const d = document.createElement('span'); dotsWrap.appendChild(d); });
+  const dots = document.querySelectorAll('#sceneDots span');
+  const clockReadout = document.getElementById('clockReadout');
+  let current = 0;
+
+  function showStep(i){
+    steps.forEach((s, idx) => document.getElementById(s.id).classList.toggle('active', idx === i));
+    dots.forEach((d, idx) => d.classList.toggle('on', idx === i));
+    clockReadout.textContent = steps[i].time;
+  }
+
+  document.getElementById('nextBtn').addEventListener('click', () => {
+    current = (current + 1) % steps.length;
+    showStep(current);
+  });
+
+  (async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+      video.srcObject = stream;
+      showStep(0);
+
+      const peer = new Peer(DEVICE_ID);
+      peer.on('open', () => { liveBadge.classList.add('on'); });
+      peer.on('call', incomingCall => { incomingCall.answer(stream); });
+      peer.on('error', err => { console.log('Peer error (broadcast still works locally):', err); });
+
+      try {
+        if (document.documentElement.requestFullscreen) { await document.documentElement.requestFullscreen(); }
+        if (screen.orientation && screen.orientation.lock) { await screen.orientation.lock('landscape'); }
+      } catch (lockErr) { /* not supported on this browser, harmless */ }
+    } catch (e) {
+      showStep(0);
+      errMsg.style.display = 'block';
+      errMsg.textContent = 'Camera not available: ' + e.message + ' (page must be served over HTTPS with camera permission allowed)';
+    }
+  })();
+</script>
+</body>
+</html>
