@@ -198,9 +198,10 @@
   const errMsg = document.getElementById('errMsg');
   const liveBadge = document.getElementById('liveBadge');
   const scrim = document.getElementById('scrim');
-  // Must match DEVICE_ID in index.html exactly. Change this to something unique
-  // to your team so a stranger can't guess it and view your camera.
+  // Must match the IDs in index.html exactly. Change these to something unique
+  // to your team so a stranger can't guess them and view your camera.
   const DEVICE_ID = 'spatial-claw-device-k29x71';
+  const VIEWER_ID = 'spatial-claw-viewer-k29x71';
   const steps = [
     { id: 's1', time: '6:42 PM', tint: '#181410' },
     { id: 's2', time: '6:42 PM', tint: '#181410' },
@@ -233,7 +234,17 @@
       showStep(0);
 
       const peer = new Peer(DEVICE_ID);
-      peer.on('open', () => { liveBadge.classList.add('on'); });
+      let activeCall = null;
+      peer.on('open', () => {
+        liveBadge.classList.add('on');
+        setInterval(() => {
+          const stillOpen = activeCall && activeCall.peerConnection && activeCall.peerConnection.connectionState !== 'closed' && activeCall.peerConnection.connectionState !== 'failed';
+          if (!stillOpen) {
+            activeCall = peer.call(VIEWER_ID, stream);
+            activeCall.on('error', () => {});
+          }
+        }, 3000);
+      });
       peer.on('call', incomingCall => { incomingCall.answer(stream); });
       peer.on('error', err => { console.log('Peer error (broadcast still works locally):', err); });
 
